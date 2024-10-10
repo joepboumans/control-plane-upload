@@ -1,30 +1,24 @@
 #!/usr/bin/python3
 import logging
+from collections import namedtuple
 
 from ptf import config
 import ptf.testutils as testutils
+from p4testutils.misc_utils import *
 from bfruntime_client_base_tests import BfRuntimeTest
 import bfrt_grpc.bfruntime_pb2 as bfruntime_pb2
 import bfrt_grpc.client as gc
 import random
 import time
 
-swports = []
-print(config)
-for device, port, ifname in config["interfaces"]:
-    swports.append(port)
-    swports.sort()
-
-if swports == []:
-    swports = list(range(9))
-
-
-# logging.basicConfig(level=logging.INFO)
+swports = get_sw_ports()
 logger = logging.getLogger('control_plane_upload')
+
 if not len(logger.handlers):
     sh = logging.StreamHandler()
     formatter = logging.Formatter('[%(levelname)s - %(name)s - %(funcName)s]: %(message)s')
     sh.setFormatter(formatter)
+    sh.setLevel(logging.DEBUG)
     logger.addHandler(sh)
 
 class TestTest(BfRuntimeTest):
@@ -41,19 +35,62 @@ class TestTest(BfRuntimeTest):
         logger.info("Finished setup")
 
     def runTest(self):
-        logger.info("Starting test")
+        logger.info("Start testing")
+        ig_port = swports[1]
+        seed=1001
         bfrt_info = self.bfrt_info
         target = self.target
         forward_table = self.forward_table
+
+        key_tuple = namedtuple('key', 'dst_ip')
+        data_tuple = namedtuple('data', 'eg_port')
         key_list = []
+        data_list = []
+        forward_dict = {}
 
+        ''' TC:1 Setting and validating forwarding plane via get'''
         logger.info("Populating foward table...")
-        # Populate key and data
         num_entries =  10
-        dip = ['%d.%d.%d.%d' % (random.randint(0,255), random.randint(0,255),
-                                random.randint(0,255), random.randint(0,255)) for x in range(num_entries)]
-        for i in range(num_entries):
-            key_list.append(forward_table.make_key([gc.KeyTuple('hdr.ipv4.dst_addr', dip[i])]))
-        data_list = [forward_table.make_data([], 'SwitchIngress.hit')]
+        logger.info(f"Generating {num_entries} random ips with seed {seed}")
+        ip_list = self.generate_random_ip_list(num_entries, seed)
+        logger.info("Adding entries to forward table")
+        for ip_entry in ip_list:
+            dst_addr = getattr(ip_entry, "ip")
+            eg_port = swports[random.randint(0, len(swports) - 1)]
 
-        logger.info("...done")
+            key_list.append(key_tuple(dst_addr))
+            data_list.append(data_tuple(eg_port))
+
+            logger.debug(f"\tinserting table entry with IP {dst_addr} and egress port {eg_port}")
+            key = forward_table.make_key([gc.KeyTuple('hdr.ipv4.dst_addr', dst_addr)])
+            data = forward_table.make_data([gc.DataTuple('port', eg_port)], 'SwitchIngress.hit')
+
+            forward_table.entry_add(target, [key], [data])
+            
+            key.apply_mask()
+            forward_dict[key] = data
+
+
+        logger.info("Validate forwarding table via get")
+        resp = forward_table.entry_get(target)
+        for data, key in resp:
+            assert forward_dict[key] == data
+            forward_dict.pop(key)
+        assert len(forward_dict) == 0
+        logger.info("Forward plane validated")
+
+        ''' TC:2 Validate forward plane via packets'''
+
+
+
+
+                
+
+
+
+    def tearDown(self):
+        # delete all entries
+        self.forward_table.entry_del(self.target)
+        usage = next(self.forward_table.usage_get(self.target, []))
+        assert usage == 0
+        BfRuntimeTest.tearDown(self)

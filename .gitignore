@@ -7,4 +7,4 @@ bf_drivers.*
 model*
 install_manifest*
 zlog*
-*__pycache__*
+*pycache*

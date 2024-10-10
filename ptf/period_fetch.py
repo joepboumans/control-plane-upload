@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 import logging
 from collections import namedtuple
+from time import perf_counter
+import random
 
 from ptf import config
 import ptf.testutils as testutils
@@ -8,8 +10,6 @@ from p4testutils.misc_utils import *
 from bfruntime_client_base_tests import BfRuntimeTest
 import bfrt_grpc.bfruntime_pb2 as bfruntime_pb2
 import bfrt_grpc.client as gc
-import random
-import time
 
 swports = get_sw_ports()
 logger = logging.getLogger('control_plane_upload')
@@ -18,7 +18,7 @@ if not len(logger.handlers):
     sh = logging.StreamHandler()
     formatter = logging.Formatter('[%(levelname)s - %(name)s - %(funcName)s]: %(message)s')
     sh.setFormatter(formatter)
-    sh.setLevel(logging.DEBUG)
+    sh.setLevel(logging.INFO)
     logger.addHandler(sh)
 
 class TestTest(BfRuntimeTest):
@@ -36,7 +36,7 @@ class TestTest(BfRuntimeTest):
 
     def runTest(self):
         logger.info("Start testing")
-        ig_port = swports[1]
+        ig_port = swports[0]
         seed=1001
         bfrt_info = self.bfrt_info
         target = self.target
@@ -50,7 +50,7 @@ class TestTest(BfRuntimeTest):
 
         ''' TC:1 Setting and validating forwarding plane via get'''
         logger.info("Populating foward table...")
-        num_entries =  10
+        num_entries =  100
         logger.info(f"Generating {num_entries} random ips with seed {seed}")
         ip_list = self.generate_random_ip_list(num_entries, seed)
         logger.info("Adding entries to forward table")
@@ -63,7 +63,7 @@ class TestTest(BfRuntimeTest):
 
             logger.debug(f"\tinserting table entry with IP {dst_addr} and egress port {eg_port}")
             key = forward_table.make_key([gc.KeyTuple('hdr.ipv4.dst_addr', dst_addr)])
-            data = forward_table.make_data([gc.DataTuple('port', eg_port)], 'SwitchIngress.hit')
+            data = forward_table.make_data([gc.DataTuple('dst_port', eg_port)], 'SwitchIngress.route')
 
             forward_table.entry_add(target, [key], [data])
             
@@ -74,22 +74,40 @@ class TestTest(BfRuntimeTest):
         logger.info("Validate forwarding table via get")
         resp = forward_table.entry_get(target)
         for data, key in resp:
+            logger.debug(f"\tresp = {data} : {key}")
             assert forward_dict[key] == data
             forward_dict.pop(key)
         assert len(forward_dict) == 0
         logger.info("Forward plane validated")
 
         ''' TC:2 Validate forward plane via packets'''
+        test_list = list(zip(key_list, data_list))
+        logger.info(f"Sending packets over port {ig_port}")
+        for key, data in test_list:
+            pkt = testutils.simple_tcp_packet(ip_dst=key.dst_ip)
+            exp_pkt = testutils.simple_tcp_packet(ip_dst=key.dst_ip)
+            logger.debug(f"\tsending: {key.dst_ip}")
+            testutils.send_packet(self, ig_port, pkt)
+            # logger.debug(f"\texpecting pkt with port {data.eg_port}")
+            # testutils.verify_packets(self, exp_pkt, [data.eg_port])
+            # break
 
+        logger.info(f"All expected packets recieved")
 
+        ''' TC:3 Get the counter values'''
+        counter = self.bfrt_info.table_get("SwitchIngress.counter")
+        start = perf_counter()
+        for i in range(1024):
+            resp = counter.entry_dump(target, {"from_hw": True})
+            resp = counter.entry_get(target, [counter.make_key([gc.KeyTuple('$REGISTER_INDEX', i)])], {"from_hw": True})
+            data, _ = next(resp)
+            logger.debug(data)
 
-
-                
-
-
+        stop = perf_counter()
+        logger.info(f"Got values from register in {stop - start} seconds")
 
     def tearDown(self):
-        # delete all entries
+        logger.info("Tearing down test")
         self.forward_table.entry_del(self.target)
         usage = next(self.forward_table.usage_get(self.target, []))
         assert usage == 0

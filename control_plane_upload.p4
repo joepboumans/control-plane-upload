@@ -28,8 +28,8 @@
 #include "common/headers.p4"
 #include "common/util.p4"
 
-#define COUNTER_WIDTH 16
-#define COUNTER_BIT_WIDTH 4 // 2^COUNTER_BIT_WIDTH = COUNTER_WIDTH
+#define COUNTER_WIDTH 1024
+#define COUNTER_BIT_WIDTH 10 // 2^COUNTER_BIT_WIDTH = COUNTER_WIDTH
 
 struct metadata_t {
   bit<32> count;
@@ -121,7 +121,10 @@ control SwitchIngress(inout header_t hdr, inout metadata_t ig_md,
 
   action hit(PortId_t port) {
     ig_intr_tm_md.ucast_egress_port = port;
-    hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+  }
+
+  action route(PortId_t dst_port) {
+    ig_intr_tm_md.ucast_egress_port = dst_port;
     ig_intr_dprsr_md.drop_ctl = 0x0;
   }
 
@@ -133,11 +136,9 @@ control SwitchIngress(inout header_t hdr, inout metadata_t ig_md,
       hdr.ipv4.dst_addr : exact;
   }
   actions = { 
-    hit;
-    miss;
+    route;
   }
 
-  const default_action = miss;
   size = 1024;
  }
 

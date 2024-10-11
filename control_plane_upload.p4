@@ -32,8 +32,14 @@
 #define COUNTER_BIT_WIDTH 10 // 2^COUNTER_BIT_WIDTH = COUNTER_WIDTH
 
 struct metadata_t {
-  bit<32> count;
-  bit<COUNTER_BIT_WIDTH> idx;
+  bit<32> count1;
+  bit<32> count2;
+  bit<32> count3;
+  bit<32> count4;
+  bit<COUNTER_BIT_WIDTH> idx1;
+  bit<COUNTER_BIT_WIDTH> idx2;
+  bit<COUNTER_BIT_WIDTH> idx3;
+  bit<COUNTER_BIT_WIDTH> idx4;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,26 +103,89 @@ control SwitchIngress(inout header_t hdr, inout metadata_t ig_md,
               inout ingress_intrinsic_metadata_for_deparser_t ig_intr_dprsr_md,
               inout ingress_intrinsic_metadata_for_tm_t ig_intr_tm_md) {
 
-  Hash<bit<COUNTER_BIT_WIDTH>>(HashAlgorithm_t.CRC16) hash16;
-  Register<bit<32>, bit<COUNTER_BIT_WIDTH>>(COUNTER_WIDTH, 0) counter;
+  Hash<bit<COUNTER_BIT_WIDTH>>(HashAlgorithm_t.CRC16) hash1;
+  Hash<bit<COUNTER_BIT_WIDTH>>(HashAlgorithm_t.CRC16) hash2;
+  Hash<bit<COUNTER_BIT_WIDTH>>(HashAlgorithm_t.CRC16) hash3;
+  Hash<bit<COUNTER_BIT_WIDTH>>(HashAlgorithm_t.CRC16) hash4;
+  Register<bit<32>, bit<COUNTER_BIT_WIDTH>>(COUNTER_WIDTH, 0) counter1;
+  Register<bit<32>, bit<COUNTER_BIT_WIDTH>>(COUNTER_WIDTH, 0) counter2;
+  Register<bit<32>, bit<COUNTER_BIT_WIDTH>>(COUNTER_WIDTH, 0) counter3;
+  Register<bit<32>, bit<COUNTER_BIT_WIDTH>>(COUNTER_WIDTH, 0) counter4;
 
-  RegisterAction<bit<32>, bit<COUNTER_BIT_WIDTH>, bit<32>>(counter) inc_counter_write = {
+  RegisterAction<bit<32>, bit<COUNTER_BIT_WIDTH>, bit<32>>(counter1) inc_counter_write1 = {
     void apply(inout bit<32> val, out bit<32> out_val) {
       val = val + 1;
       out_val = val;
     }
   };
 
-  action get_hash() {
-    ig_md.idx = hash16.get({hdr.ipv4.src_addr, 
+  RegisterAction<bit<32>, bit<COUNTER_BIT_WIDTH>, bit<32>>(counter2) inc_counter_write2 = {
+    void apply(inout bit<32> val, out bit<32> out_val) {
+      val = val + 1;
+      out_val = val;
+    }
+  };
+
+  RegisterAction<bit<32>, bit<COUNTER_BIT_WIDTH>, bit<32>>(counter3) inc_counter_write3 = {
+    void apply(inout bit<32> val, out bit<32> out_val) {
+      val = val + 1;
+      out_val = val;
+    }
+  };
+
+  RegisterAction<bit<32>, bit<COUNTER_BIT_WIDTH>, bit<32>>(counter4) inc_counter_write4 = {
+    void apply(inout bit<32> val, out bit<32> out_val) {
+      val = val + 1;
+      out_val = val;
+    }
+  };
+
+  action get_hash1() {
+    ig_md.idx1 = hash1.get({hdr.ipv4.src_addr, 
                             hdr.ipv4.dst_addr, 
                             hdr.udp.src_port, 
                             hdr.udp.dst_port,
                             hdr.ipv4.protocol});
   }
 
-  action increment_counter() {
-    ig_md.count = inc_counter_write.execute(ig_md.idx);
+  action get_hash2() {
+    ig_md.idx2 = hash2.get({hdr.ipv4.src_addr, 
+                            hdr.ipv4.dst_addr, 
+                            hdr.udp.src_port, 
+                            hdr.udp.dst_port,
+                            hdr.ipv4.protocol});
+  }
+
+  action get_hash3() {
+    ig_md.idx3 = hash3.get({hdr.ipv4.src_addr, 
+                            hdr.ipv4.dst_addr, 
+                            hdr.udp.src_port, 
+                            hdr.udp.dst_port,
+                            hdr.ipv4.protocol});
+  }
+  
+  action get_hash4() {
+    ig_md.idx4 = hash4.get({hdr.ipv4.src_addr, 
+                            hdr.ipv4.dst_addr, 
+                            hdr.udp.src_port, 
+                            hdr.udp.dst_port,
+                            hdr.ipv4.protocol});
+  }
+
+  action increment_counter1() {
+    ig_md.count1 = inc_counter_write1.execute(ig_md.idx1);
+  }
+
+  action increment_counter2() {
+    ig_md.count2 = inc_counter_write2.execute(ig_md.idx2);
+  }
+
+  action increment_counter3() {
+    ig_md.count3 = inc_counter_write3.execute(ig_md.idx3);
+  }
+
+  action increment_counter4() {
+    ig_md.count4 = inc_counter_write4.execute(ig_md.idx4);
   }
 
   action hit(PortId_t port) {
@@ -143,8 +212,14 @@ control SwitchIngress(inout header_t hdr, inout metadata_t ig_md,
  }
 
   apply { 
-    get_hash();
-    increment_counter();
+    get_hash1();
+    get_hash2();
+    get_hash3();
+    get_hash4();
+    increment_counter1();
+    increment_counter2();
+    increment_counter3();
+    increment_counter4();
 
     forward.apply(); 
     ig_intr_tm_md.bypass_egress = 1w1;

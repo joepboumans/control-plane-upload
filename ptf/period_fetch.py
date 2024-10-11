@@ -95,16 +95,40 @@ class TestTest(BfRuntimeTest):
         logger.info(f"All expected packets recieved")
 
         ''' TC:3 Get the counter values'''
-        counter = self.bfrt_info.table_get("SwitchIngress.counter")
-        start = perf_counter()
-        for i in range(1024):
-            resp = counter.entry_dump(target, {"from_hw": True})
-            resp = counter.entry_get(target, [counter.make_key([gc.KeyTuple('$REGISTER_INDEX', i)])], {"from_hw": True})
-            data, _ = next(resp)
-            logger.debug(data)
+        counters = []
+        for i in range(1,5):
+            counters.append(self.bfrt_info.table_get(f"SwitchIngress.counter{i}"))
 
-        stop = perf_counter()
-        logger.info(f"Got values from register in {stop - start} seconds")
+        dump_get = []
+        entry_get = []
+        for counter in counters:
+            start = perf_counter()
+            for i in range(1024):
+                resp = counter.entry_get(target, [counter.make_key([gc.KeyTuple('$REGISTER_INDEX', i)])], {"from_hw": True})
+                data, _ = next(resp)
+                logger.debug(data)
+            stop = perf_counter()
+            entry_get.append(stop - start)
+            logger.info(f"Entry get in {stop - start:.3f} seconds")
+
+            # Outperforms normal get by factor of 3
+            dump = counter.entry_get(target, [])
+            start = perf_counter()
+            for data, key in dump:
+                logger.debug(data)
+                logger.debug(key)
+            stop = perf_counter()
+            dump_get.append(stop - start)
+            logger.info(f"Dump get in {stop - start:.3f} seconds")
+
+        total_dump_get = sum(dump_get)
+        total_entry_get = sum(entry_get)
+        avg_dump_get = total_dump_get / len(dump_get)
+        avg_entry_get = total_entry_get / len(entry_get)
+
+        logger.info(f"{total_dump_get = :.3f} : {avg_dump_get = :.3f} over {len(dump_get)} counters")
+        logger.info(f"{total_entry_get = :.3f} : {avg_entry_get = :.3f} over {len(entry_get)} counters")
+
 
     def tearDown(self):
         logger.info("Tearing down test")

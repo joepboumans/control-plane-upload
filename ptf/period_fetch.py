@@ -31,6 +31,9 @@ class TestTest(BfRuntimeTest):
         self.bfrt_info = self.interface.bfrt_info_get("control_plane_upload")
         self.forward_table = self.bfrt_info.table_get("SwitchIngress.forward")
         self.forward_table.info.key_field_annotation_add("hdr.ipv4.dst_addr", "ipv4")
+        self.counters = []
+        for i in range(1,5):
+            self.counters.append(self.bfrt_info.table_get(f"SwitchIngress.counter{i}"))
         self.target = gc.Target(device_id=0, pipe_id=0xffff)
         logger.info("Finished setup")
 
@@ -95,13 +98,9 @@ class TestTest(BfRuntimeTest):
         logger.info(f"All expected packets recieved")
 
         ''' TC:3 Get the counter values'''
-        counters = []
-        for i in range(1,5):
-            counters.append(self.bfrt_info.table_get(f"SwitchIngress.counter{i}"))
-
         dump_get = []
         entry_get = []
-        for counter in counters:
+        for j, counter in zip(range(1,5), self.counters):
             start = perf_counter()
             for i in range(1024):
                 resp = counter.entry_get(target, [counter.make_key([gc.KeyTuple('$REGISTER_INDEX', i)])], {"from_hw": True})
@@ -114,12 +113,22 @@ class TestTest(BfRuntimeTest):
             # Outperforms normal get by factor of 3
             dump = counter.entry_get(target, [])
             start = perf_counter()
+            summed = 0
             for data, key in dump:
+                data_dict = data.to_dict()
+                entry_val = data_dict[f"SwitchIngress.counter{j}.f1"][0]
+                summed += entry_val
+
+                logger.debug(data[f"SwitchIngress.counter{j}.f1"].int_arr_val)
+                logger.debug(f"got value {entry_val}")
                 logger.debug(data)
                 logger.debug(key)
+
             stop = perf_counter()
             dump_get.append(stop - start)
             logger.info(f"Dump get in {stop - start:.3f} seconds")
+            logger.debug(f"{summed = }")
+            assert summed == num_entries
 
         total_dump_get = sum(dump_get)
         total_entry_get = sum(entry_get)
@@ -134,5 +143,7 @@ class TestTest(BfRuntimeTest):
         logger.info("Tearing down test")
         self.forward_table.entry_del(self.target)
         usage = next(self.forward_table.usage_get(self.target, []))
+        for counter in self.counters:
+            counter.entry_del(self.target)
         assert usage == 0
         BfRuntimeTest.tearDown(self)
